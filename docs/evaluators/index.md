@@ -98,9 +98,11 @@ Name of the model used to run evaluation. This must be one of:
 - `claude-3_5` (Claude 3.5 Sonnet)
 - `claude-3_7-us` (Claude 3.7 Sonnet)
 - `claude-haiku-3_5-us` (Claude 3.5 Haiku)
+- `claude-sonnet-4_5-global` (Claude Sonnet 4.5)
+- `claude-haiku-4_5-global` (Claude Haiku 4.5)
 - `llama-3_3-us` (Llama 3.3 70B)
 
-The models suffixed with `-us` are using default USA cross region inference profile. Bedrock cross region [documentation link](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html).
+Models suffixed with `-us` use the default USA cross-region inference profile. Models suffixed with `-global` use the global inference profile for worldwide availability. See Bedrock cross-region [documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html).
 ---
 
 `custom-config` _(dict; optional)_

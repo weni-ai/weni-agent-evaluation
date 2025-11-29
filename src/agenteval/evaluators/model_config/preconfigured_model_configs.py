@@ -91,6 +91,46 @@ DEFAULT_CLAUDE_HAIKU_3_5_US_MODEL_CONFIG = BedrockModelConfig(
     },
 )
 
+DEFAULT_CLAUDE_SONNET_4_5_GLOBAL_MODEL_CONFIG = BedrockModelConfig(
+    model_id="global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    request_body={
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 300,
+        "system": None,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": None},
+                ],
+            }
+        ],
+        "temperature": 0,
+        "top_p": 1,
+        "top_k": 250,
+    },
+)
+
+DEFAULT_CLAUDE_HAIKU_4_5_GLOBAL_MODEL_CONFIG = BedrockModelConfig(
+    model_id="global.anthropic.claude-haiku-4-5-20251001-v1:0",
+    request_body={
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 300,
+        "system": None,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": None},
+                ],
+            }
+        ],
+        "temperature": 0,
+        "top_p": 1,
+        "top_k": 250,
+    },
+)
+
 # LLama Models
 DEFAULT_LLAMA_3_3_70B_US_MODEL_CONFIG = BedrockModelConfig(
     model_id="us.meta.llama3-3-70b-instruct-v1:0",

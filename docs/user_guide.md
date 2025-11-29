@@ -10,7 +10,7 @@ This will create a configuration file named `agenteval.yml` in the current direc
 
 ```yaml title="agenteval.yml"
 evaluator:
-  model: claude-haiku-3_5-us
+  model: claude-haiku-4_5-global  # or claude-sonnet-4_5-global for higher accuracy
   aws_region: us-east-1
 target:
   type: weni

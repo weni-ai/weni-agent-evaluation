@@ -66,7 +66,7 @@ Create a test configuration file `agenteval.yml`:
 
 ```yaml
 evaluator:
-  model: claude-haiku-3_5-us
+  model: claude-haiku-4_5-global  # or claude-sonnet-4_5-global, claude-haiku-3_5-us
   aws_region: us-east-1
 
 target:
