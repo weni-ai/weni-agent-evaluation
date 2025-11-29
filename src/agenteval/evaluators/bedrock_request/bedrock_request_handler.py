@@ -1,5 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+import copy
 import json
 from typing import Dict
 
@@ -22,6 +23,9 @@ class BedrockRequestHandler:
         system_prompt: str,
         prompt: str,
     ) -> Dict:
+        # Deep copy to avoid modifying the original config template
+        request_body = copy.deepcopy(request_body)
+        
         if model_config.provider == ModelProvider.META:
             # Source for approach: https://www.llama.com/docs/model-cards-and-prompt-formats/llama3_3/
             request_body["prompt"] = (

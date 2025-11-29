@@ -95,7 +95,7 @@ DEFAULT_CLAUDE_SONNET_4_5_GLOBAL_MODEL_CONFIG = BedrockModelConfig(
     model_id="global.anthropic.claude-sonnet-4-5-20250929-v1:0",
     request_body={
         "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 300,
+        "max_tokens": 4096,
         "system": None,
         "messages": [
             {
@@ -114,7 +114,7 @@ DEFAULT_CLAUDE_HAIKU_4_5_GLOBAL_MODEL_CONFIG = BedrockModelConfig(
     model_id="global.anthropic.claude-haiku-4-5-20251001-v1:0",
     request_body={
         "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 300,
+        "max_tokens": 4096,
         "system": None,
         "messages": [
             {
