@@ -106,7 +106,6 @@ DEFAULT_CLAUDE_SONNET_4_5_GLOBAL_MODEL_CONFIG = BedrockModelConfig(
             }
         ],
         "temperature": 0,
-        "top_p": 1,
         "top_k": 250,
     },
 )
@@ -126,7 +125,6 @@ DEFAULT_CLAUDE_HAIKU_4_5_GLOBAL_MODEL_CONFIG = BedrockModelConfig(
             }
         ],
         "temperature": 0,
-        "top_p": 1,
         "top_k": 250,
     },
 )
