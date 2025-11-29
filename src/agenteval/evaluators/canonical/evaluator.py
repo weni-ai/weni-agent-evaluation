@@ -184,7 +184,7 @@ class CanonicalEvaluator(BaseEvaluator):
 
         return evaluation, reasoning
 
-    def _generate_user_response(self) -> str:
+    def _generate_user_response(self, max_retries: int = 3) -> str:
         system_prompt = self._prompt_template_map["generate_user_response"][
             "system"
         ].render()
@@ -192,11 +192,28 @@ class CanonicalEvaluator(BaseEvaluator):
             steps=self.test.steps, conversation=self.conversation
         )
 
-        user_response, reasoning = self._generate(
-            system_prompt=system_prompt,
-            prompt=prompt,
-            output_xml_element="user_response",
-        )
+        user_response = None
+        reasoning = None
+
+        for attempt in range(max_retries):
+            user_response, reasoning = self._generate(
+                system_prompt=system_prompt,
+                prompt=prompt,
+                output_xml_element="user_response",
+            )
+
+            if user_response is not None:
+                break
+
+            logger.warning(
+                f"[{self.test.name}] No user_response tag found in model response. "
+                f"Retry attempt {attempt + 1}/{max_retries}"
+            )
+
+        if user_response is None:
+            logger.error(
+                f"[{self.test.name}] Failed to extract user_response after {max_retries} attempts"
+            )
 
         self.trace.add_step(
             system_prompt=system_prompt,
