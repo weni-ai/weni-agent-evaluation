@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+import time
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -419,3 +420,100 @@ class TestWeniTarget:
             assert "weni_project_uuid" in error_message
         else:
             pytest.fail("Expected ValueError to be raised")
+
+    def test_default_new_params(self, weni_target_fixture):
+        """The new opt-in params must default to disabled (legacy behavior)."""
+        assert weni_target_fixture.connect_ws_first is False
+        assert weni_target_fixture.accumulate_messages_window == 0.0
+
+    def test_initialization_with_new_params(self):
+        """Both new params are stored on the target."""
+        weni_target = target.WeniTarget(
+            weni_project_uuid="test-project-uuid",
+            weni_bearer_token="test-bearer-token",
+            connect_ws_first=True,
+            accumulate_messages_window=1.5,
+        )
+        assert weni_target.connect_ws_first is True
+        assert weni_target.accumulate_messages_window == 1.5
+
+    @patch("src.agenteval.targets.weni.target.requests.post")
+    @patch("src.agenteval.targets.weni.target.websocket.WebSocketApp")
+    def test_invoke_with_connect_ws_first_opens_ws_before_post(self, mock_websocket, mock_post):
+        """When connect_ws_first=True the WebSocket must be created before the POST is sent."""
+        call_order: list[str] = []
+
+        mock_ws_instance = MagicMock()
+
+        def record_ws_create(*args, **kwargs):
+            call_order.append("ws_create")
+            # Trigger the broadcast message during run_forever so wait_for_response returns.
+            on_message = kwargs["on_message"]
+
+            def fake_run_forever():
+                test_message = {
+                    "type": "preview",
+                    "message": {
+                        "type": "preview",
+                        "content": {"type": "broadcast", "message": "Response after WS"},
+                    },
+                }
+                on_message(mock_ws_instance, json.dumps(test_message))
+
+            mock_ws_instance.run_forever.side_effect = fake_run_forever
+            return mock_ws_instance
+
+        mock_websocket.side_effect = record_ws_create
+
+        def record_post(*args, **kwargs):
+            call_order.append("post")
+            return MagicMock(status_code=200)
+
+        mock_post.side_effect = record_post
+
+        weni_target = target.WeniTarget(
+            weni_project_uuid="test-project-uuid",
+            weni_bearer_token="test-bearer-token",
+            timeout=5,
+            connect_ws_first=True,
+        )
+
+        response = weni_target.invoke("Test prompt")
+
+        assert response.response == "Response after WS"
+        assert call_order == ["ws_create", "post"]
+
+    @patch("src.agenteval.targets.weni.target.requests.post")
+    @patch("src.agenteval.targets.weni.target.websocket.WebSocketApp")
+    def test_invoke_accumulates_multiple_messages(self, mock_websocket, mock_post):
+        """When accumulate_messages_window > 0, multiple broadcasts are joined."""
+        mock_post.return_value = MagicMock(status_code=200)
+
+        mock_ws_instance = MagicMock()
+        mock_websocket.return_value = mock_ws_instance
+
+        def simulate_ws_run():
+            on_message = mock_websocket.call_args[1]["on_message"]
+            for body in ("First message", "Second message", "Third message"):
+                test_message = {
+                    "type": "preview",
+                    "message": {
+                        "type": "preview",
+                        "content": {"type": "broadcast", "message": body},
+                    },
+                }
+                on_message(mock_ws_instance, json.dumps(test_message))
+                time.sleep(0.05)
+
+        mock_ws_instance.run_forever.side_effect = simulate_ws_run
+
+        weni_target = target.WeniTarget(
+            weni_project_uuid="test-project-uuid",
+            weni_bearer_token="test-bearer-token",
+            timeout=5,
+            accumulate_messages_window=0.3,
+        )
+
+        response = weni_target.invoke("Test prompt")
+
+        assert response.response == "First message\nSecond message\nThird message"

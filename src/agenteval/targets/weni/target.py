@@ -20,11 +20,21 @@ logger = logging.getLogger(__name__)
 
 class WebSocketConnectionManager:
     """Manages WebSocket connections with ping/pong and reconnection logic."""
-    
-    def __init__(self, endpoint: str, headers: dict, timeout: int):
+
+    def __init__(
+        self,
+        endpoint: str,
+        headers: dict,
+        timeout: int,
+        accumulate_messages_window: float = 0.0,
+    ):
         self.endpoint = endpoint
         self.headers = headers
         self.timeout = timeout
+        # When > 0, the manager waits this many seconds without a new broadcast message
+        # before considering the agent response complete. When 0 (default), the first
+        # broadcast message ends the wait, preserving the legacy single-message behavior.
+        self.accumulate_messages_window = accumulate_messages_window
         self.ws = None
         self.ws_thread = None
         self.final_response = None
@@ -37,6 +47,8 @@ class WebSocketConnectionManager:
         self.reconnect_delay = 2  # seconds
         self.ping_timeout = 10  # seconds to wait for pong response
         self._lock = threading.Lock()
+        self._received_messages: list[str] = []
+        self._last_message_time: float = 0.0
         
     def connect(self) -> bool:
         """Establish WebSocket connection with retry logic."""
@@ -127,45 +139,66 @@ class WebSocketConnectionManager:
         try:
             data = json.loads(message)
             logger.debug(f"Received WebSocket message: {json.dumps(data, indent=2)[:200]}...")
-            
-            # Handle pong messages
+
             if data.get("type") == "pong":
                 with self._lock:
                     self.last_pong_time = time.time()
                 logger.debug("Received pong response")
                 return
-            
-            # Check for preview message format
-            if data.get("type") == "preview":
-                message_data = data.get("message", {})
-                if message_data.get("type") == "preview":
-                    content = message_data.get("content", {})
-                    if content.get("type") == "broadcast" and "message" in content:
-                        message_content = content["message"]
 
-                        # Handle both string and array formats
-                        if isinstance(message_content, str):
-                            # Simple string format
-                            self.final_response = message_content
-                        elif isinstance(message_content, list) and len(message_content) > 0:
-                            # Array format - concatenate all text messages
-                            text_parts = []
-                            for msg in message_content:
-                                if isinstance(msg, dict) and "msg" in msg:
-                                    msg_obj = msg["msg"]
-                                    if isinstance(msg_obj, dict) and "text" in msg_obj:
-                                        text_parts.append(msg_obj["text"])
+            extracted_text = self._extract_broadcast_text(data)
+            if not extracted_text:
+                return
 
-                            if text_parts:
-                                self.final_response = "\n".join(text_parts)
-                        
-                        if self.final_response:
-                            logger.debug(f"Received preview broadcast message: {self.final_response[:100]}...")
+            with self._lock:
+                self._received_messages.append(extracted_text)
+                self._last_message_time = time.time()
+                # Legacy mode (window == 0): first broadcast wins and ends the wait.
+                # Accumulating mode (window > 0): final_response is set later by wait_for_response.
+                if self.accumulate_messages_window <= 0 and self.final_response is None:
+                    self.final_response = extracted_text
+
+            logger.debug(f"Received preview broadcast message: {extracted_text[:100]}...")
 
         except json.JSONDecodeError:
             logger.warning(f"Failed to decode WebSocket message: {message[:100]}...")
         except Exception as e:
             logger.error(f"Error processing WebSocket message: {str(e)}")
+
+    @staticmethod
+    def _extract_broadcast_text(data: dict) -> Optional[str]:
+        """Extract text content from a preview broadcast message payload.
+
+        Returns:
+            The extracted text, or None if the payload is not a recognized broadcast.
+        """
+        if data.get("type") != "preview":
+            return None
+
+        message_data = data.get("message", {})
+        if message_data.get("type") != "preview":
+            return None
+
+        content = message_data.get("content", {})
+        if content.get("type") != "broadcast" or "message" not in content:
+            return None
+
+        message_content = content["message"]
+
+        if isinstance(message_content, str):
+            return message_content
+
+        if isinstance(message_content, list) and len(message_content) > 0:
+            text_parts = []
+            for msg in message_content:
+                if isinstance(msg, dict) and "msg" in msg:
+                    msg_obj = msg["msg"]
+                    if isinstance(msg_obj, dict) and "text" in msg_obj:
+                        text_parts.append(msg_obj["text"])
+            if text_parts:
+                return "\n".join(text_parts)
+
+        return None
     
     def _on_error(self, ws, error):
         """Handle WebSocket errors."""
@@ -193,32 +226,61 @@ class WebSocketConnectionManager:
     def wait_for_response(self) -> Optional[str]:
         """Wait for response with connection health monitoring and reconnection."""
         start_time = time.time()
-        
-        while self.final_response is None and (time.time() - start_time) < self.timeout:
-            # Check connection health and send pings
+
+        while (time.time() - start_time) < self.timeout:
             self._check_connection_health()
-            
-            # Handle connection loss with reconnection
-            if self.connection_lost and self.final_response is None:
+
+            if self.connection_lost and self.final_response is None and not self._has_received_messages():
                 logger.warning("Connection lost, attempting to reconnect...")
                 self.close()
-                
+
                 if not self.connect():
                     break
-            
-            # Check for WebSocket errors
+
             if self.ws_error:
                 logger.error(f"WebSocket error occurred: {self.ws_error}")
-                return None  # Let the timeout handling deal with this
-            
+                return None
+
+            if self._is_response_complete():
+                break
+
             time.sleep(0.1)
-        
-        # Close connection when we have a response or timeout
+
+        # Finalize accumulated response if in accumulating mode and timeout was not hit.
+        if self.accumulate_messages_window > 0 and self.final_response is None:
+            with self._lock:
+                if self._received_messages:
+                    self.final_response = "\n".join(self._received_messages)
+
         if self.final_response is not None:
             logger.debug("Response received, closing WebSocket connection")
             self.close()
-        
+
         return self.final_response
+
+    def _has_received_messages(self) -> bool:
+        with self._lock:
+            return len(self._received_messages) > 0
+
+    def _is_response_complete(self) -> bool:
+        """Check whether the manager has enough to consider the response complete.
+
+        - Legacy mode (window == 0): completion is signaled by `final_response` being set
+          on the first broadcast received.
+        - Accumulating mode (window > 0): completion is reached when at least one broadcast
+          arrived and no new broadcast was received within the configured quiet window.
+        """
+        if self.accumulate_messages_window <= 0:
+            return self.final_response is not None
+
+        with self._lock:
+            if not self._received_messages:
+                return False
+            quiet_elapsed = time.time() - self._last_message_time
+            if quiet_elapsed >= self.accumulate_messages_window:
+                self.final_response = "\n".join(self._received_messages)
+                return True
+            return False
     
     def close(self):
         """Close WebSocket connection and cleanup."""
@@ -247,17 +309,28 @@ class WeniTarget(BaseTarget):
         weni_bearer_token: Optional[str] = None,
         language: str = "en-US",
         timeout: int = 480,
+        connect_ws_first: bool = False,
+        accumulate_messages_window: float = 0.0,
         **kwargs
     ):
         """Initialize the target.
 
         Args:
-            weni_project_uuid (Optional[str]): The Weni project UUID. 
+            weni_project_uuid (Optional[str]): The Weni project UUID.
                 If not provided, will be read from WENI_PROJECT_UUID env var or weni-cli cache.
-            weni_bearer_token (Optional[str]): The Weni bearer token. 
+            weni_bearer_token (Optional[str]): The Weni bearer token.
                 If not provided, will be read from WENI_BEARER_TOKEN env var or weni-cli cache.
             language (str): The language for the conversation. Defaults to "pt-BR".
-            timeout (int): Maximum time to wait for agent response in seconds. Defaults to 30.
+            timeout (int): Maximum time to wait for agent response in seconds. Defaults to 480.
+            connect_ws_first (bool): When True, establish the WebSocket connection before
+                sending the POST request. Closes the race window where the agent broadcasts
+                a response before the listener is ready. Defaults to False to preserve the
+                legacy behavior.
+            accumulate_messages_window (float): When > 0, collect every broadcast message
+                received and wait this many seconds without a new message before returning
+                the concatenated response. Useful for agents that emit multiple messages
+                per turn (e.g. text + catalog). Defaults to 0, which preserves the legacy
+                behavior of returning the first broadcast message.
         """
         super().__init__()
         
@@ -279,7 +352,9 @@ class WeniTarget(BaseTarget):
         )
         self.language = language
         self.timeout = timeout
-        
+        self.connect_ws_first = connect_ws_first
+        self.accumulate_messages_window = accumulate_messages_window
+
         if not self.project_uuid:
             raise ValueError(
                 "weni_project_uuid is required. Please:\n"
@@ -323,13 +398,13 @@ class WeniTarget(BaseTarget):
         """
         try:
             logger.debug(f"Invoking Weni agent with prompt: {prompt}")
-            
-            # Send the prompt via POST request
-            self._send_prompt(prompt)
-            
-            # Connect to WebSocket and wait for response
-            response_text = self._wait_for_response()
-            
+
+            if self.connect_ws_first:
+                response_text = self._invoke_with_ws_first(prompt)
+            else:
+                self._send_prompt(prompt)
+                response_text = self._wait_for_response()
+
             return TargetResponse(
                 response=response_text,
                 data={
@@ -338,9 +413,8 @@ class WeniTarget(BaseTarget):
                     "session_id": self.contact_urn
                 }
             )
-            
+
         except Exception as e:
-            # Handle any unexpected errors gracefully
             error_message = (
                 f"UNEXPECTED ERROR: {str(e)} - "
                 f"An unexpected error occurred while invoking the Weni agent. "
@@ -348,7 +422,6 @@ class WeniTarget(BaseTarget):
             )
             logger.error(f"Error invoking Weni agent: {error_message}")
 
-            # Return error response instead of raising exception
             return TargetResponse(
                 response=error_message,
                 data={
@@ -358,6 +431,33 @@ class WeniTarget(BaseTarget):
                     "error": True
                 }
             )
+
+    def _invoke_with_ws_first(self, prompt: str) -> str:
+        """Open the WebSocket before sending the prompt to avoid losing early broadcasts.
+
+        Args:
+            prompt (str): The prompt to send to the agent.
+
+        Returns:
+            str: The agent's final response text (or an error message if the WS connection
+                or wait fails).
+        """
+        connection_manager = self._build_connection_manager()
+
+        if not connection_manager.connect():
+            error_message = (
+                "CONNECTION ERROR: Failed to establish WebSocket connection after multiple attempts. "
+                "This could indicate network connectivity issues, invalid credentials, or server problems. "
+                "Test case marked as failed."
+            )
+            logger.error(error_message)
+            return error_message
+
+        try:
+            self._send_prompt(prompt)
+            return self._collect_response(connection_manager)
+        finally:
+            connection_manager.close()
 
     def _send_prompt(self, prompt: str) -> None:
         """Send a prompt to the Weni API.
@@ -487,13 +587,31 @@ class WeniTarget(BaseTarget):
     def _wait_for_response(self) -> str:
         """Connect to WebSocket and wait for the agent's final response.
 
-        Returns:
-            str: The agent's final response text.
+        Used when ``connect_ws_first`` is False: the WS is established after the POST
+        has already been sent (legacy ordering).
 
-        Raises:
-            TimeoutError: If no response is received within the timeout period.
+        Returns:
+            str: The agent's final response text, or an error message if the connection
+                fails or the wait times out.
         """
-        # Configure WebSocket headers
+        connection_manager = self._build_connection_manager()
+
+        if not connection_manager.connect():
+            error_message = (
+                "CONNECTION ERROR: Failed to establish WebSocket connection after multiple attempts. "
+                "This could indicate network connectivity issues, invalid credentials, or server problems. "
+                "Test case marked as failed."
+            )
+            logger.error(error_message)
+            return error_message
+
+        try:
+            return self._collect_response(connection_manager)
+        finally:
+            connection_manager.close()
+
+    def _build_connection_manager(self) -> WebSocketConnectionManager:
+        """Build a `WebSocketConnectionManager` configured for this target."""
         headers = {
             "Origin": "https://intelligence-next.weni.ai",
             "Accept-Language": "en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7,es;q=0.6,nl;q=0.5,fr;q=0.4",
@@ -503,43 +621,27 @@ class WeniTarget(BaseTarget):
                 "Chrome/139.0.0.0 Safari/537.36"
             )
         }
-        
+
         logger.debug(f"Connecting to WebSocket: {self.ws_endpoint[:50]}...")
-        
-        # Create connection manager with ping/pong and reconnection support
-        connection_manager = WebSocketConnectionManager(
+
+        return WebSocketConnectionManager(
             endpoint=self.ws_endpoint,
             headers=headers,
-            timeout=self.timeout
+            timeout=self.timeout,
+            accumulate_messages_window=self.accumulate_messages_window,
         )
-        
-        # Establish initial connection
-        if not connection_manager.connect():
+
+    def _collect_response(self, connection_manager: WebSocketConnectionManager) -> str:
+        """Wait for the agent's response on an already-connected manager."""
+        final_response = connection_manager.wait_for_response()
+
+        if final_response is None:
             error_message = (
-                f"CONNECTION ERROR: Failed to establish WebSocket connection after multiple attempts. "
-                f"This could indicate network connectivity issues, invalid credentials, or server problems. "
+                f"TIMEOUT ERROR: No response received from Weni agent within {self.timeout} seconds. "
+                f"This could indicate network issues, agent processing delays, or WebSocket connection problems. "
                 f"Test case marked as failed."
             )
             logger.error(error_message)
             return error_message
-        
-        try:
-            # Wait for response with automatic reconnection and ping/pong
-            final_response = connection_manager.wait_for_response()
-            
-            if final_response is None:
-                # Instead of raising an exception, return an error response
-                # This allows the test to continue with other test cases
-                error_message = (
-                    f"TIMEOUT ERROR: No response received from Weni agent within {self.timeout} seconds. "
-                    f"This could indicate network issues, agent processing delays, or WebSocket connection problems. "
-                    f"Test case marked as failed."
-                )
-                logger.error(error_message)
-                return error_message
-            
-            return final_response
-            
-        finally:
-            # Ensure WebSocket is properly closed
-            connection_manager.close()
+
+        return final_response
