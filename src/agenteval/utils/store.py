@@ -9,7 +9,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-STORE_TOKEN_KEY = "token"
+STORE_TOKEN_KEY = "token"  # nosec B105 - name of the JSON key in the local cache file, not a credential
 STORE_PROJECT_UUID_KEY = "project_uuid"
 STORE_WENI_BASE_URL = "weni_base_url"
 STORE_NEXUS_BASE_URL = "nexus_base_url"

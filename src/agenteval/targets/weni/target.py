@@ -303,8 +303,8 @@ class WebSocketConnectionManager:
         try:
             if self.ws:
                 self.ws.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Error while closing WebSocket connection: {e}")
 
         # Only join thread if we're not calling from within the WebSocket thread itself
         if self.ws_thread and self.ws_thread.is_alive():
