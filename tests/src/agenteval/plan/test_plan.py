@@ -73,8 +73,8 @@ class TestPlan:
             ),
         ],
     )
-    def test_resolve_num_threads(self, num_tests, num_threads, expected):
-        threads = plan.Plan._resolve_num_threads(
+    def test_resolve_num_threads(self, plan_fixture, num_tests, num_threads, expected):
+        threads = plan_fixture._resolve_num_threads(
             num_tests=num_tests, num_threads=num_threads
         )
         assert threads == expected
@@ -96,7 +96,7 @@ class TestPlan:
 
         plan_fixture.run(False, None, None, None)
 
-        spy_setup_run.assert_called_once_with(None, None, None)
+        spy_setup_run.assert_called_once_with(None, None, None, False)
         mock_log_run_start.assert_called_once()
         mock_run_concurrent.assert_called_once()
         mock_log_run_end.assert_called_once()
