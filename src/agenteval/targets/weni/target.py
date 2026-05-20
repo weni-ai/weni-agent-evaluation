@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
-import os
-import uuid
-import time
 import logging
+import os
 import threading
+import time
+import uuid
 from typing import Optional
 
 import requests
@@ -49,13 +49,15 @@ class WebSocketConnectionManager:
         self._lock = threading.Lock()
         self._received_messages: list[str] = []
         self._last_message_time: float = 0.0
-        
+
     def connect(self) -> bool:
         """Establish WebSocket connection with retry logic."""
         for attempt in range(self.max_reconnect_attempts):
             try:
-                logger.debug(f"WebSocket connection attempt {attempt + 1}/{self.max_reconnect_attempts}")
-                
+                logger.debug(
+                    f"WebSocket connection attempt {attempt + 1}/{self.max_reconnect_attempts}"
+                )
+
                 self.ws = websocket.WebSocketApp(
                     self.endpoint,
                     on_open=self._on_open,
@@ -64,31 +66,35 @@ class WebSocketConnectionManager:
                     on_close=self._on_close,
                     on_ping=self._on_ping,
                     on_pong=self._on_pong,
-                    header=self.headers
+                    header=self.headers,
                 )
-                
+
                 # Run WebSocket in a separate thread
                 self.ws_thread = threading.Thread(target=self._run_with_ping)
                 self.ws_thread.daemon = True
                 self.ws_thread.start()
-                
+
                 # Wait a bit for connection to establish
                 time.sleep(1)
-                
+
                 if self.ws and not self.connection_lost:
                     logger.debug("WebSocket connection established successfully")
                     return True
-                    
+
             except Exception as e:
-                logger.warning(f"WebSocket connection attempt {attempt + 1} failed: {e}")
-                
+                logger.warning(
+                    f"WebSocket connection attempt {attempt + 1} failed: {e}"
+                )
+
             if attempt < self.max_reconnect_attempts - 1:
-                logger.debug(f"Retrying connection in {self.reconnect_delay} seconds...")
+                logger.debug(
+                    f"Retrying connection in {self.reconnect_delay} seconds..."
+                )
                 time.sleep(self.reconnect_delay)
-        
+
         logger.error("Failed to establish WebSocket connection after all attempts")
         return False
-    
+
     def _run_with_ping(self):
         """Run WebSocket with automatic ping mechanism."""
         try:
@@ -97,7 +103,7 @@ class WebSocketConnectionManager:
         except Exception as e:
             logger.error(f"WebSocket run_forever failed: {e}")
             self.ws_error = e
-    
+
     def _send_ping(self):
         """Send ping message to keep connection alive."""
         if self.ws and not self.connection_lost:
@@ -109,23 +115,25 @@ class WebSocketConnectionManager:
             except Exception as e:
                 logger.warning(f"Failed to send ping: {e}")
                 self.connection_lost = True
-    
+
     def _check_connection_health(self):
         """Check if connection is healthy based on ping/pong timing."""
         current_time = time.time()
-        
+
         # Send ping if interval has passed
         if current_time - self.last_ping_time > self.ping_interval:
             self._send_ping()
-        
+
         # Check if we haven't received pong in time
-        if (self.last_ping_time > 0 and 
-            self.last_pong_time < self.last_ping_time and 
-            current_time - self.last_ping_time > self.ping_timeout):
+        if (
+            self.last_ping_time > 0
+            and self.last_pong_time < self.last_ping_time
+            and current_time - self.last_ping_time > self.ping_timeout
+        ):
             logger.warning("Ping timeout - connection may be lost")
             with self._lock:
                 self.connection_lost = True
-    
+
     def _on_open(self, ws):
         """Handle WebSocket connection open."""
         with self._lock:
@@ -133,12 +141,14 @@ class WebSocketConnectionManager:
             self.last_ping_time = time.time()
             self.last_pong_time = time.time()
         logger.debug("WebSocket connection established")
-    
+
     def _on_message(self, ws, message):
         """Handle incoming WebSocket messages."""
         try:
             data = json.loads(message)
-            logger.debug(f"Received WebSocket message: {json.dumps(data, indent=2)[:200]}...")
+            logger.debug(
+                f"Received WebSocket message: {json.dumps(data, indent=2)[:200]}..."
+            )
 
             if data.get("type") == "pong":
                 with self._lock:
@@ -158,7 +168,9 @@ class WebSocketConnectionManager:
                 if self.accumulate_messages_window <= 0 and self.final_response is None:
                     self.final_response = extracted_text
 
-            logger.debug(f"Received preview broadcast message: {extracted_text[:100]}...")
+            logger.debug(
+                f"Received preview broadcast message: {extracted_text[:100]}..."
+            )
 
         except json.JSONDecodeError:
             logger.warning(f"Failed to decode WebSocket message: {message[:100]}...")
@@ -199,30 +211,30 @@ class WebSocketConnectionManager:
                 return "\n".join(text_parts)
 
         return None
-    
+
     def _on_error(self, ws, error):
         """Handle WebSocket errors."""
         with self._lock:
             self.ws_error = error
             self.connection_lost = True
         logger.error(f"WebSocket error: {error}")
-    
+
     def _on_close(self, ws, close_status_code, close_msg):
         """Handle WebSocket closure."""
         with self._lock:
             self.connection_lost = True
         logger.debug(f"WebSocket closed with code {close_status_code}: {close_msg}")
-    
+
     def _on_ping(self, ws, message):
         """Handle WebSocket ping from server."""
         logger.debug("Received WebSocket ping from server")
-    
+
     def _on_pong(self, ws, message):
         """Handle WebSocket pong from server."""
         with self._lock:
             self.last_pong_time = time.time()
         logger.debug("Received WebSocket pong from server")
-    
+
     def wait_for_response(self) -> Optional[str]:
         """Wait for response with connection health monitoring and reconnection."""
         start_time = time.time()
@@ -230,7 +242,11 @@ class WebSocketConnectionManager:
         while (time.time() - start_time) < self.timeout:
             self._check_connection_health()
 
-            if self.connection_lost and self.final_response is None and not self._has_received_messages():
+            if (
+                self.connection_lost
+                and self.final_response is None
+                and not self._has_received_messages()
+            ):
                 logger.warning("Connection lost, attempting to reconnect...")
                 self.close()
 
@@ -281,15 +297,15 @@ class WebSocketConnectionManager:
                 self.final_response = "\n".join(self._received_messages)
                 return True
             return False
-    
+
     def close(self):
         """Close WebSocket connection and cleanup."""
         try:
             if self.ws:
                 self.ws.close()
-        except:
+        except Exception:
             pass
-        
+
         # Only join thread if we're not calling from within the WebSocket thread itself
         if self.ws_thread and self.ws_thread.is_alive():
             current_thread = threading.current_thread()
@@ -311,7 +327,7 @@ class WeniTarget(BaseTarget):
         timeout: int = 480,
         connect_ws_first: bool = False,
         accumulate_messages_window: float = 0.0,
-        **kwargs
+        **kwargs,
     ):
         """Initialize the target.
 
@@ -333,22 +349,22 @@ class WeniTarget(BaseTarget):
                 behavior of returning the first broadcast message.
         """
         super().__init__()
-        
+
         # Try multiple sources for project_uuid and bearer_token:
         # 1. Direct parameter
         # 2. Environment variable
         # 3. Weni CLI cache (fallback)
         store = Store()
-        
+
         self.project_uuid = (
-            weni_project_uuid or 
-            os.environ.get("WENI_PROJECT_UUID") or 
-            store.get_project_uuid()
+            weni_project_uuid
+            or os.environ.get("WENI_PROJECT_UUID")
+            or store.get_project_uuid()
         )
         self.bearer_token = (
-            weni_bearer_token or 
-            os.environ.get("WENI_BEARER_TOKEN") or 
-            store.get_token()
+            weni_bearer_token
+            or os.environ.get("WENI_BEARER_TOKEN")
+            or store.get_token()
         )
         self.language = language
         self.timeout = timeout
@@ -371,11 +387,11 @@ class WeniTarget(BaseTarget):
                 "2. Or set WENI_BEARER_TOKEN environment variable\n"
                 "3. Or provide 'weni_bearer_token' in your test configuration"
             )
-        
+
         # Generate unique contact URN for this test session
         # This ensures each test case has its own conversation history
         self.contact_urn = f"ext:{uuid.uuid4().hex}"
-        
+
         # API endpoints
         self.api_base_url = "https://nexus.weni.ai"
         self.api_endpoint = f"{self.api_base_url}/api/{self.project_uuid}/preview/"
@@ -383,7 +399,7 @@ class WeniTarget(BaseTarget):
             f"wss://nexus.weni.ai/ws/preview/{self.project_uuid}/"
             f"?Token={self.bearer_token}"
         )
-        
+
         logger.debug(f"Initialized WeniTarget with project UUID: {self.project_uuid}")
         logger.debug(f"Using contact URN: {self.contact_urn}")
 
@@ -410,8 +426,8 @@ class WeniTarget(BaseTarget):
                 data={
                     "contact_urn": self.contact_urn,
                     "language": self.language,
-                    "session_id": self.contact_urn
-                }
+                    "session_id": self.contact_urn,
+                },
             )
 
         except Exception as e:
@@ -428,8 +444,8 @@ class WeniTarget(BaseTarget):
                     "contact_urn": self.contact_urn,
                     "language": self.language,
                     "session_id": self.contact_urn,
-                    "error": True
-                }
+                    "error": True,
+                },
             )
 
     def _invoke_with_ws_first(self, prompt: str) -> str:
@@ -486,101 +502,102 @@ class WeniTarget(BaseTarget):
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/139.0.0.0 Safari/537.36"
-            )
+            ),
         }
-        
+
         data = {
             "text": prompt,
             "attachments": [],
             "contact_urn": self.contact_urn,
-            "language": self.language
+            "language": self.language,
         }
-        
+
         logger.debug(f"Sending POST request to {self.api_endpoint}")
-        
+
         response = requests.post(
-            self.api_endpoint,
-            headers=headers,
-            json=data,
-            timeout=10
+            self.api_endpoint, headers=headers, json=data, timeout=10
         )
-        
+
         try:
             response.raise_for_status()
-            logger.debug(f"Successfully sent prompt to Weni API. Status: {response.status_code}")
+            logger.debug(
+                f"Successfully sent prompt to Weni API. Status: {response.status_code}"
+            )
         except requests.exceptions.HTTPError as e:
             self._handle_http_error(response, e)
 
-    def _handle_http_error(self, response: requests.Response, error: requests.exceptions.HTTPError) -> None:
+    def _handle_http_error(
+        self, response: requests.Response, error: requests.exceptions.HTTPError
+    ) -> None:
         """Handle HTTP errors with helpful error messages.
-        
+
         Args:
             response: The HTTP response object
             error: The original HTTPError
-            
+
         Raises:
             ValueError: With a helpful error message based on the status code
         """
         status_code = response.status_code
-        
+
         if status_code == 401:
             # Unauthorized - likely invalid token
             error_msg = (
-                f"Authentication failed (401 Unauthorized). "
-                f"The bearer token is invalid or expired.\n\n"
-                f"To fix this issue:\n"
-                f"1. Install and use Weni CLI (recommended): 'pip install weni-cli && weni login'\n"
-                f"   Get Weni CLI at: https://github.com/weni-ai/weni-cli\n"
-                f"2. Or set a valid token in environment variable: WENI_BEARER_TOKEN=your_token\n"
-                f"3. Or provide 'weni_bearer_token' in your test configuration\n\n"
-                f"Get your token manually from: https://intelligence.weni.ai (User menu > API Token)"
+                "Authentication failed (401 Unauthorized). "
+                "The bearer token is invalid or expired.\n\n"
+                "To fix this issue:\n"
+                "1. Install and use Weni CLI (recommended): 'pip install weni-cli && weni login'\n"
+                "   Get Weni CLI at: https://github.com/weni-ai/weni-cli\n"
+                "2. Or set a valid token in environment variable: WENI_BEARER_TOKEN=your_token\n"
+                "3. Or provide 'weni_bearer_token' in your test configuration\n\n"
+                "Get your token manually from: https://intelligence.weni.ai (User menu > API Token)"
             )
             raise ValueError(error_msg) from error
-            
+
         elif status_code == 403:
             # Forbidden - likely no access to project
             error_msg = (
-                f"Access forbidden (403 Forbidden). "
-                f"You don't have permission to access this project.\n\n"
-                f"To fix this issue:\n"
+                "Access forbidden (403 Forbidden). "
+                "You don't have permission to access this project.\n\n"
+                "To fix this issue:\n"
                 f"1. Verify the project UUID is correct: {self.project_uuid}\n"
-                f"2. Ensure you have access to this project in Weni\n"
-                f"3. Contact your project administrator if needed"
+                "2. Ensure you have access to this project in Weni\n"
+                "3. Contact your project administrator if needed"
             )
             raise ValueError(error_msg) from error
-            
+
         elif status_code == 404:
             # Not found - likely invalid project UUID
             error_msg = (
-                f"Project not found (404 Not Found). "
+                "Project not found (404 Not Found). "
                 f"The project UUID '{self.project_uuid}' does not exist or is invalid.\n\n"
-                f"To fix this issue:\n"
-                f"1. Use Weni CLI to select the correct project (recommended): 'weni project use [project-uuid]'\n"
-                f"   Get Weni CLI at: https://github.com/weni-ai/weni-cli\n"
-                f"2. Or set the correct UUID in environment variable: WENI_PROJECT_UUID=your_uuid\n"
-                f"3. Or provide 'weni_project_uuid' in your test configuration\n\n"
-                f"Find your project UUID manually at: https://intelligence.weni.ai (Project Settings > General)"
+                "To fix this issue:\n"
+                "1. Use Weni CLI to select the correct project (recommended): 'weni project use [project-uuid]'\n"
+                "   Get Weni CLI at: https://github.com/weni-ai/weni-cli\n"
+                "2. Or set the correct UUID in environment variable: WENI_PROJECT_UUID=your_uuid\n"
+                "3. Or provide 'weni_project_uuid' in your test configuration\n\n"
+                "Find your project UUID manually at: https://intelligence.weni.ai (Project Settings > General)"
             )
             raise ValueError(error_msg) from error
-            
+
         elif status_code >= 500:
             # Server error
             error_msg = (
                 f"Weni server error ({status_code}). "
-                f"The Weni API is experiencing issues.\n\n"
-                f"To fix this issue:\n"
-                f"1. Wait a few minutes and try again\n"
-                f"2. Check Weni status page for known issues\n"
-                f"3. Contact Weni support if the problem persists"
+                "The Weni API is experiencing issues.\n\n"
+                "To fix this issue:\n"
+                "1. Wait a few minutes and try again\n"
+                "2. Check Weni status page for known issues\n"
+                "3. Contact Weni support if the problem persists"
             )
             raise ValueError(error_msg) from error
-            
+
         else:
             # Other HTTP errors
             error_msg = (
                 f"HTTP error {status_code}: {response.reason}\n"
                 f"URL: {response.url}\n\n"
-                f"Please check your configuration and try again."
+                "Please check your configuration and try again."
             )
             raise ValueError(error_msg) from error
 
@@ -619,7 +636,7 @@ class WeniTarget(BaseTarget):
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/139.0.0.0 Safari/537.36"
-            )
+            ),
         }
 
         logger.debug(f"Connecting to WebSocket: {self.ws_endpoint[:50]}...")
