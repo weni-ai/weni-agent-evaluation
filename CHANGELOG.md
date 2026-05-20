@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0]
+
+### Added
+- `WeniTarget` now accepts the optional `connect_ws_first` flag. When set to `True`,
+  the WebSocket connection is established before the POST request is sent, closing
+  the race window where the agent could broadcast a response before the listener was
+  ready. Defaults to `False` to preserve the legacy behavior.
+- `WeniTarget` now accepts the optional `accumulate_messages_window` (in seconds).
+  When greater than `0`, the target collects every broadcast message received during
+  a turn and waits this many seconds without a new message before returning the
+  concatenated response. Useful for agents that emit multiple messages per turn
+  (e.g. text + catalog). Defaults to `0`, which preserves the legacy behavior of
+  returning the first broadcast message.
+
 ## [0.4.1]
 
 - Fix broken module imports for `BedrockModelConfig` and `BedrockRequestHandler`.

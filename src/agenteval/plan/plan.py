@@ -113,7 +113,9 @@ class Plan(BaseModel):
         # Check if target requires sequential execution
         target_type = self.config.get("target", {}).get("type")
         if target_type == "weni":
-            logger.info("Weni target detected - forcing single-threaded execution for WebSocket stability")
+            logger.info(
+                "Weni target detected - forcing single-threaded execution for WebSocket stability"
+            )
             return 1
 
         return (
@@ -151,7 +153,9 @@ class Plan(BaseModel):
             self._run_watch_mode()
         else:
             with Progress(transient=True) as self._progress:
-                self._tracker = self._progress.add_task("running...", total=self._num_tests)
+                self._tracker = self._progress.add_task(
+                    "running...", total=self._num_tests
+                )
                 self._run_concurrent()
 
         fail_count = self._num_tests - self._pass_count
@@ -179,7 +183,11 @@ class Plan(BaseModel):
             raise TestFailureError
 
     def _setup_run(
-        self, filter: Optional[str], work_dir: Optional[str], num_threads: Optional[int], watch: bool = False
+        self,
+        filter: Optional[str],
+        work_dir: Optional[str],
+        num_threads: Optional[int],
+        watch: bool = False,
     ):
         self._evaluator_factory = EvaluatorFactory(config=self.config["evaluator"])
         self._target_factory = TargetFactory(config=self.config["target"])
@@ -188,7 +196,9 @@ class Plan(BaseModel):
         self._num_tests = self._test_suite.num_tests
         self._work_dir = work_dir or os.getcwd()
         # In watch mode, force single-threaded execution for readable output
-        self._num_threads = 1 if watch else self._resolve_num_threads(self._num_tests, num_threads)
+        self._num_threads = (
+            1 if watch else self._resolve_num_threads(self._num_tests, num_threads)
+        )
         self._results = {test.name: None for test in self._test_suite}
         self._evaluator_input_token_counts = []
         self._evaluator_output_token_counts = []
@@ -211,15 +221,15 @@ class Plan(BaseModel):
     def _run_watch_mode(self):
         """Run tests in watch mode with real-time conversation display."""
         import click
-        
-        click.echo("\n" + "="*80)
+
+        click.echo("\n" + "=" * 80)
         click.echo(f"🔍 WATCH MODE: Running {self._num_tests} test(s) sequentially")
-        click.echo("="*80 + "\n")
-        
+        click.echo("=" * 80 + "\n")
+
         for i, test in enumerate(self._test_suite, 1):
             click.echo(f"📋 Test {i}/{self._num_tests}: {test.name}")
             click.echo("-" * 60)
-            
+
             # Create a custom evaluator that reports conversations in real-time
             target = self._target_factory.create()
             evaluator = self._evaluator_factory.create(
@@ -227,36 +237,38 @@ class Plan(BaseModel):
                 target=target,
                 work_dir=self._work_dir,
             )
-            
+
             # Monkey patch the evaluator to show conversations in real-time
             original_add_turn = evaluator.conversation.add_turn
             original_invoke_target = evaluator._invoke_target
-            
+
             def watch_invoke_target(user_input: str):
                 # Show user prompt immediately when sent
                 click.echo(f"\n👤 USER: {user_input}")
-                click.echo("🤖 AGENT: ", nl=False)  # Print "AGENT: " without newline, waiting for response
-                
+                click.echo(
+                    "🤖 AGENT: ", nl=False
+                )  # Print "AGENT: " without newline, waiting for response
+
                 # Call the original method to get agent response
                 agent_response = original_invoke_target(user_input)
-                
+
                 # Show the agent response
                 click.echo(agent_response)
                 click.echo()  # Add blank line for readability
-                
+
                 return agent_response
-            
+
             def watch_add_turn(user_message: str, agent_response: str):
                 # Call the original method (conversation display already handled in watch_invoke_target)
                 original_add_turn(user_message, agent_response)
-            
+
             # Apply the patches
             evaluator._invoke_target = watch_invoke_target
             evaluator.conversation.add_turn = watch_add_turn
-            
+
             # Run the test
             result = evaluator.run()
-            
+
             # Display test result
             if result.passed:
                 click.echo(f"✅ PASSED: {test.name}")
@@ -268,7 +280,7 @@ class Plan(BaseModel):
                 click.echo(f"   Result: {result.result}")
                 if result.reasoning:
                     click.echo(f"   Reasoning: {result.reasoning}")
-            
+
             # Update results
             with self._lock:
                 if result.passed is True:
@@ -276,13 +288,15 @@ class Plan(BaseModel):
                 self._results[test.name] = result
                 self._evaluator_input_token_counts.append(evaluator.input_token_count)
                 self._evaluator_output_token_counts.append(evaluator.output_token_count)
-            
+
             if i < self._num_tests:
-                click.echo("\n" + "="*80 + "\n")
-        
-        click.echo("\n" + "="*80)
-        click.echo(f"🏁 WATCH MODE COMPLETED: {self._pass_count}/{self._num_tests} tests passed")
-        click.echo("="*80 + "\n")
+                click.echo("\n" + "=" * 80 + "\n")
+
+        click.echo("\n" + "=" * 80)
+        click.echo(
+            f"🏁 WATCH MODE COMPLETED: {self._pass_count}/{self._num_tests} tests passed"
+        )
+        click.echo("=" * 80 + "\n")
 
     def _run_test(self, test):
         target = self._target_factory.create()

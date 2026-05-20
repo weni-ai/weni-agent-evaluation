@@ -15,7 +15,7 @@ class QBusinessTarget(Boto3Target):
         self,
         q_business_application_id: str,
         q_business_user_id: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Initialize the target.

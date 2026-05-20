@@ -59,8 +59,10 @@ The required `websocket-client` package is automatically installed as a dependen
 ```yaml title="agenteval.yml"
 target:
   type: weni
-  # language: pt-BR  # Optional, defaults to pt-BR
-  # timeout: 30      # Optional, max seconds to wait for response
+  # language: pt-BR                       # Optional, defaults to pt-BR
+  # timeout: 480                          # Optional, max seconds to wait for response
+  # connect_ws_first: true                # Optional, recommended for multi-step tests
+  # accumulate_messages_window: 2.0       # Optional, recommended for agents that emit multiple messages per turn
   # Optionally provide credentials directly (not recommended):
   # weni_project_uuid: your-project-uuid
   # weni_bearer_token: your-bearer-token
@@ -106,10 +108,32 @@ language: en-US
 
 `timeout` *(integer; optional)*
 
-Maximum time in seconds to wait for the agent's response via WebSocket. Defaults to `30`.
+Maximum time in seconds to wait for the agent's response via WebSocket. Defaults to `480`.
 
 ```yaml
-timeout: 45
+timeout: 120
+```
+
+---
+
+`connect_ws_first` *(boolean; optional)*
+
+When `true`, establish the WebSocket connection before sending the prompt via HTTP POST. This closes a race window where the agent may broadcast a response before the listener is ready, which can cause the turn to wait the full `timeout` without receiving anything. Defaults to `false` to preserve the legacy ordering (POST first, then WS).
+
+Recommended for production usage, especially with multi-step tests.
+
+```yaml
+connect_ws_first: true
+```
+
+---
+
+`accumulate_messages_window` *(float; optional)*
+
+When greater than `0`, collect every broadcast message received during a turn and wait this many seconds without a new message before returning the concatenated response. Useful for agents that emit multiple messages per turn (for example, an introductory text followed by a catalog message). Defaults to `0`, which returns the first broadcast and discards anything that arrives afterwards.
+
+```yaml
+accumulate_messages_window: 2.0
 ```
 
 ## How It Works
@@ -239,6 +263,12 @@ weni-agenteval init
 - Check for any proxy configurations that might interfere with WebSocket connections
 - Verify the WebSocket endpoint URL is correct for your project
 
+**Test reports a partial or unrelated agent response**
+- The agent likely emitted more than one message per turn (for example, an introductory text followed by a catalog) and only the first one was captured. Set `accumulate_messages_window` to a small positive value (for example `2.0`) so the target collects every message before returning.
+
+**Turn hangs and times out even though the agent replied quickly**
+- The WebSocket may have been opened after the agent already broadcast its response, dropping the message. Set `connect_ws_first: true` so the listener is ready before the prompt is sent.
+
 ### Debug Logging
 
 To enable detailed logging for troubleshooting:
@@ -257,7 +287,8 @@ This will show detailed information about:
 ## Limitations
 
 - Each test case maintains its own conversation context through a unique contact identifier
-- The target waits for the `finalResponse` message type and ignores intermediate processing messages
+- By default the target returns the first broadcast received per turn; set `accumulate_messages_window` when the agent emits multiple messages per turn (e.g. text + catalog)
+- By default the WebSocket listener is opened after the prompt is sent; set `connect_ws_first: true` to avoid losing broadcasts that arrive before the listener is ready
 - Response time depends on the agent's complexity and the Weni platform's processing time
 
 ## See Also

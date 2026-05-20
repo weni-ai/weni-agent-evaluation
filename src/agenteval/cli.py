@@ -96,7 +96,11 @@ def run(
     try:
         plan = Plan.load(plan_dir)
         plan.run(
-            verbose=verbose, num_threads=num_threads, work_dir=work_dir, filter=filter, watch=watch
+            verbose=verbose,
+            num_threads=num_threads,
+            work_dir=work_dir,
+            filter=filter,
+            watch=watch,
         )
 
     except TestFailureError:

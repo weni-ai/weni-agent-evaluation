@@ -18,7 +18,7 @@ class BedrockAgentTarget(Boto3Target):
         bedrock_agent_alias_id: str,
         bedrock_session_attributes: Optional[dict] = {},
         bedrock_prompt_session_attributes: Optional[dict] = {},
-        **kwargs
+        **kwargs,
     ):
         """Initialize the target.
 

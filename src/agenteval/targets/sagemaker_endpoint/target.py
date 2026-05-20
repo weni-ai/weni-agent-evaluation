@@ -27,7 +27,7 @@ class SageMakerEndpointTarget(Boto3Target):
         target_variant: Optional[str] = None,
         target_container_hostname: Optional[str] = None,
         inference_component_name: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Initialize the target.

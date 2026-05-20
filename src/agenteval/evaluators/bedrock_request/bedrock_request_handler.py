@@ -25,7 +25,7 @@ class BedrockRequestHandler:
     ) -> Dict:
         # Deep copy to avoid modifying the original config template
         request_body = copy.deepcopy(request_body)
-        
+
         if model_config.provider == ModelProvider.META:
             # Source for approach: https://www.llama.com/docs/model-cards-and-prompt-formats/llama3_3/
             request_body["prompt"] = (
